@@ -3,7 +3,6 @@ import AVFoundation
 
 public class AudioCapture {
   let audioEngine: AVAudioEngine = AVAudioEngine()
-    private var outputFormat = AVAudioFormat(commonFormat: AVAudioCommonFormat.pcmFormatInt16, sampleRate: 44100, channels: 2, interleaved: true)
   init() {
       do{
     let audioSession: AVAudioSession = AVAudioSession.sharedInstance()
@@ -18,18 +17,29 @@ public class AudioCapture {
   }
   
   deinit{
-    audioEngine.inputNode.removeTap(onBus: 0)
     audioEngine.stop()
+    audioEngine.inputNode.removeTap(onBus: 0)
+    audioEngine.reset()
   }
   
   public func startSession(bufferSize: UInt32, sampleRate: Double, cb: @escaping (_ buffer: Array<Float>) -> Void) throws {
-  
+    
+    let audioSession: AVAudioSession = AVAudioSession.sharedInstance()
+    try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker, .mixWithOthers]) // init line from AudioKit adds .defaultToSpeaker
+    try audioSession.setActive(true)
+
     let inputNode = audioEngine.inputNode
     let inputFormat  = inputNode.inputFormat(forBus: 0)
-    try! audioEngine.start()
-    inputNode.installTap(onBus: 0,
-                          bufferSize: bufferSize,
-                          format: inputFormat) { (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
+    do {
+        audioEngine.prepare()
+        try audioEngine.start()
+    } catch {
+      print("Error starting audio engine: \(error)")
+      return
+    }
+
+    inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { 
+      (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
                           // Convert audio format from 44100Hz to passed sampleRate
                           // https://medium.com/@prianka.kariat/changing-the-format-of-ios-avaudioengine-mic-input-c183459cab63
                           let formatToConvert = AVAudioFormat(commonFormat: .pcmFormatFloat32,
@@ -41,7 +51,7 @@ public class AudioCapture {
                             if let converter = AVAudioConverter(from: inputFormat, to: formatToConvert) {
                               convertedBuffer = AVAudioPCMBuffer(pcmFormat:  formatToConvert,
                                                                   // frameCapacity: AVAudioFrameCount( formatToConvert.sampleRate * 0.4))
-                                                                  frameCapacity: AVAudioFrameCount(self.outputFormat!.sampleRate) * buffer.frameLength / AVAudioFrameCount(buffer.format.sampleRate))
+                                                                  frameCapacity: AVAudioFrameCount(sampleRate) * buffer.frameLength / AVAudioFrameCount(buffer.format.sampleRate))
                               let inputBlock : AVAudioConverterInputBlock = { (inNumPackets, outStatus) -> AVAudioBuffer? in
                                 outStatus.pointee = AVAudioConverterInputStatus.haveData
                                 let audioBuffer : AVAudioBuffer = buffer
